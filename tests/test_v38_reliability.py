@@ -86,14 +86,31 @@ def test_current_v38_public_schema_is_preserved_exactly():
             "height",
         )
     )
+    # RefMod (ComfyUI-MiniMaxH3Mod) controls are appended last so every
+    # earlier V3.8 widget index is unchanged.
+    expected_required.extend(
+        (
+            "refmod_retention",
+            "refmod_curve_direction",
+            "refmod_curve_shape",
+            "refmod_curve_value",
+            "refmod_scramble_seed",
+            "refmod_scramble_mode",
+            "refmod_scramble_keep",
+            "refmod_max_tokens",
+            "refmod_override",
+        )
+    )
     assert tuple(v38["required"]) == tuple(expected_required)
-    assert list(v38["optional"])[:-1] == list(v37["optional"])
-    assert list(v38["optional"])[-1] == "audio_references"
+    assert list(v38["optional"])[:-2] == list(v37["optional"])
+    assert list(v38["optional"])[-2:] == ["audio_references", "refmods"]
     assert v38["optional"]["audio_references"][0] == (
         "H3_CONTINUUM_AUDIO_REFERENCES"
     )
     assert v38.get("hidden") == v37.get("hidden")
-    assert tuple(v38["required"])[-8:] == (
+    # The review/size widgets stay the last non-RefMod controls; `refmod_*`
+    # widgets are appended after them.
+    assert tuple(name for name in v38["required"] if not name.startswith("refmod_"))[-8:] == (
         "generation_mode",
         "review_action",
         "take_group",

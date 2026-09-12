@@ -203,7 +203,53 @@ const ADVANCED_WIDGET_HELP = Object.freeze({
         "Variation number for an explicit regeneration. Change it to create another Take while "
         + "keeping the same prompt, seed, and other settings."
     ),
+    refmod_retention: (
+        "RefMod master reference strength, multiplied with each Load H3 RefMods row strength. "
+        + "1.0 fully preserved, 0.7 partially preserved, 0.4 attribute transfer, 0.15 weak reference. "
+        + "Used only when RefMods is connected."
+    ),
+    refmod_curve_direction: (
+        "Weighting envelope across each mod's own reference frames, not the output timeline. "
+        + "constant keeps every frame at full strength; concept_at_* directions fade part of the stack."
+    ),
+    refmod_curve_shape: (
+        "How the RefMod weighting travels between its endpoints. Only matters when Curve Direction "
+        + "is not constant."
+    ),
+    refmod_curve_value: (
+        "RefMod curve endpoint weight. On single-image mods this is a plain strength cap."
+    ),
+    refmod_scramble_seed: (
+        "-1 turns RefMod scrambling off. With 2 or more refs, a seed of 0 or higher shuffles the "
+        + "ref order so a different reference leads each run."
+    ),
+    refmod_scramble_mode: (
+        "shuffle keeps every ref in seeded order; subset keeps Scramble Keep refs; legacy_subset "
+        + "keeps a seeded random half-to-all subset. Ignored while Scramble Seed is -1."
+    ),
+    refmod_scramble_keep: (
+        "Number of refs retained when RefMod Scramble Mode is subset."
+    ),
+    refmod_max_tokens: (
+        "Total RefMod reference token budget after copies. 0 disables the limit; a bundle above "
+        + "a positive budget is rejected before sampling, matching Apply H3 RefMod."
+    ),
+    refmod_override: (
+        "Use the retention and curve fixed into a mod's metadata by Fix H3 RefMod Config instead "
+        + "of the RefMod widgets. Falls back to the widgets when no mod carries a saved config."
+    ),
 });
+const REFMOD_WIDGETS = Object.freeze([
+    "refmod_retention",
+    "refmod_curve_direction",
+    "refmod_curve_shape",
+    "refmod_curve_value",
+    "refmod_scramble_seed",
+    "refmod_scramble_mode",
+    "refmod_scramble_keep",
+    "refmod_max_tokens",
+    "refmod_override",
+]);
 const V38_VIEW_PROPERTY = "H3 Continuum View";
 const V38_VIEW_BASIC = "Basic";
 const V38_VIEW_PRODUCTION = "Production";
@@ -1316,12 +1362,18 @@ function configureIntuitiveV38Ux(node) {
         )) {
             hidePersistentWidget(findWidget(node, name));
         }
+        const refmodsConnected = activeLinkedInput(node, ["refmods"]);
         for (const name of (
             [
                 "continuation_backend",
             ]
         )) {
             setWidgetVisible(findWidget(node, name), advanced);
+        }
+        // RefMod settings mirror Apply H3 RefMod and only act on a connected
+        // RefMods bundle, so they surface with Advanced open plus that link.
+        for (const name of REFMOD_WIDGETS) {
+            setWidgetVisible(findWidget(node, name), advanced && refmodsConnected);
         }
         setWidgetVisible(findWidget(node, REGENERATE_WIDGET), advanced && storageEnabled);
         setWidgetVisible(findWidget(node, LEGACY_RUN_NAME_WIDGET), advanced && storageEnabled);

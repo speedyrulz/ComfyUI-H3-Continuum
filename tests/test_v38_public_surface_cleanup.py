@@ -92,6 +92,17 @@ def test_v38_schema_and_serialized_widget_order_are_unchanged():
             "size_source",
             "width",
             "height",
+            # RefMod (ComfyUI-MiniMaxH3Mod) controls are appended after every
+            # pre-existing V3.8 widget so saved widget indices stay stable.
+            "refmod_retention",
+            "refmod_curve_direction",
+            "refmod_curve_shape",
+            "refmod_curve_value",
+            "refmod_scramble_seed",
+            "refmod_scramble_mode",
+            "refmod_scramble_keep",
+            "refmod_max_tokens",
+            "refmod_override",
         ]
     assert list(schema["optional"]) == [
         "first_frame",
@@ -106,6 +117,7 @@ def test_v38_schema_and_serialized_widget_order_are_unchanged():
         "reference_audio_vae",
         "guide",
         "audio_references",
+        "refmods",
     ]
 
 

@@ -118,7 +118,8 @@ def test_v38_schema_appends_review_widgets_without_changing_v37():
     v38 = H3ContinuumSamplerV38.INPUT_TYPES()["required"]
     assert "generation_mode" not in v37
     assert "review_action" not in v37
-    assert list(v38)[-8:] == [
+    # RefMod (`refmod_*`) controls are appended after the review/size widgets.
+    assert [name for name in v38 if not name.startswith("refmod_")][-8:] == [
         "generation_mode",
         "review_action",
         "take_group",

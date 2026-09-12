@@ -111,6 +111,7 @@ The Sampler returns six outputs: a list of `video_latents`, a list of `audio_lat
 | `Reference Audio (Optional)` + `Reference Audio VAE (Optional)` | Legacy single conditioning-only audio reference | Generated audio remains final audio |
 | `Audio References (Optional)` | Ordered bundle from `H3 Continuum Reference Audios` | Do not connect this together with the legacy single Reference Audio path |
 | `Still Image Guide (Optional)` | Compatibility socket inherited from the V3.7 guide contract | Experimental; not part of the seven-node V3.8 standard workflow |
+| `RefMods (Optional)` | `H3_REF_MODS` bundle from the external [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) pack (`Load H3 RefMods`, `Load H3 RefMod Axis`, or `Create H3 RefMod`) | The Sampler applies it like `Apply H3 RefMod` to every chunk; leave unconnected to disable. See [RefMod integration](#refmod-integration-comfyui-minimaxh3mod) |
 
 #### First Image, Last Image, and Reference Images
 
@@ -205,8 +206,31 @@ For an audio-only listening diagnostic, use T2VA, `Size Source = Manual`, and a 
 | `Run Name (Optional Override)` | Advanced open and Progress On | Stable name for resume and Render History; blank uses the Sampler's automatic identity |
 | `Reference Image Size` | Advanced open and a Reference Image connected | `Match Output` is practical; `Max Identity` preserves more reference detail and may use more memory |
 | `Video Guide Size` | Advanced open and Video Guide connected | `Efficient — 0.4 MP`, `Balanced — 0.6 MP`, or `Match Output` |
+| `RefMod Retention` | Advanced open and RefMods connected | Master reference strength multiplied with each loader row: `1.0` fully preserved, `0.7` partially preserved, `0.4` attribute transfer, `0.15` weak reference |
+| `RefMod Curve Direction` / `Shape` / `Value` | Advanced open and RefMods connected | Weighting across each mod's own reference frames, identical to `Apply H3 RefMod`; single-image mods use `Value` as a strength cap |
+| `RefMod Scramble Seed` / `Mode` / `Keep` | Advanced open and RefMods connected | `-1` keeps the saved order; `0` or higher shuffles a multi-ref bundle (`shuffle`, `subset` of `Keep` refs, or `legacy_subset`) |
+| `RefMod Token Budget` | Advanced open and RefMods connected | `0` disables the limit; a bundle above a positive budget is rejected before sampling, as in the pack |
+| `RefMod Use Saved Config` | Advanced open and RefMods connected | Use retention and curve fixed into a mod by `Fix H3 RefMod Config`; falls back to the widgets when no mod carries one |
 
 Frontend-managed IDs, selected Take IDs, one-shot review actions, diagnostics, preview, and legacy compatibility values are deliberately not editable as ordinary node widgets. The corresponding settings or action buttons below are the supported interface.
+
+### RefMod integration (ComfyUI-MiniMaxH3Mod)
+
+[ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) ("RefMod") saves MiniMax H3 image, video, and audio references as small reusable `.safetensors` mods. Its `Load H3 RefMods`, `Load H3 RefMod Axis`, and `Create H3 RefMod` nodes output an `H3_REF_MODS` bundle, and its `Apply H3 RefMod` node injects that bundle into one conditioning. Continuum builds its own conditioning per chunk, so the V3.8 Sampler accepts the bundle directly instead:
+
+1. Install the RefMod pack normally; Continuum has no import-time dependency on it and works unchanged without it.
+2. Wire `Load H3 RefMods` (or `Load H3 RefMod Axis` / `Create H3 RefMod`) `mods` into the Sampler's `RefMods (Optional)` socket. The `Apply H3 RefMod` node is not needed on the Continuum path; the Sampler performs the same block construction, using the pack's own helper when it is installed.
+3. Open `Advanced Settings` to reveal the `RefMod …` controls. They are the same retention, curve, scramble, token-budget, and saved-config switches as `Apply H3 RefMod`, and they are ignored while the socket is unconnected.
+4. The pack's `H3 RefMod Step Curve` node (per-denoising-step envelope) still composes: place it on the MODEL line before the Sampler.
+
+How it works: the Sampler resolves the bundle once per Queue and attaches one keyed `OUTER_SAMPLE` wrapper to a call-local MODEL clone. Every physical sampling group (including a Long Terminal Merge pair) then receives the same native reference blocks in its guider conditioning, after Continuum's own continuation context reference. The status report gains a `RefMod Bridge` section listing the injected mods, effective strengths, curve, scramble, token count, and which helper built the blocks.
+
+Boundaries:
+
+- Nothing in Continuum's conditioning construction, continuation transport, Audio, Seed, or SIGMAS changes; a disconnected socket is bit-exact with the previous Sampler.
+- Run Storage identity does not include the RefMod bundle or its settings. Changing mods or strengths keeps previously accepted chunks reusable; use `Regenerate From` to rebuild chunks with the new references.
+- Captured Second Pass refine context does not contain the RefMod blocks. Put the pack's `H3 RefMod Continuum Bridge` or `Step Curve` node on the Second Pass MODEL line when the refinement should see them.
+- Prompt hints from the loader (`prompt_hint`) are plain text; concatenate them into the Sequence Prompt yourself if wanted.
 
 ### Review-state controls
 

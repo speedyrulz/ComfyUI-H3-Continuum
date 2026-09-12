@@ -69,10 +69,34 @@ Continuum does not select an attention backend, import accelerator-private
 functions, or globally monkey-patch an accelerator. Missing optional accelerator
 markers are informational and never become package dependencies.
 
+## RefMod boundary
+
+The external ComfyUI-MiniMaxH3Mod pack ("RefMod") is integrated through one
+optional `H3_REF_MODS` socket on the V3.8 Sampler plus Advanced controls that
+mirror its `Apply H3 RefMod` node. The contract is:
+
+- Continuum has no import-time dependency on the pack. The installed pack is
+  discovered lazily by capability only when a bundle is connected; when its
+  block builder is present it is used verbatim, otherwise a duck-typed port
+  with the same retention, curve, scramble, budget, and saved-config
+  semantics builds the blocks from the mod objects.
+- Injection is model-scoped: one keyed `OUTER_SAMPLE` wrapper on a call-local
+  MODEL clone appends the native reference blocks to the guider conditioning
+  of every physical sampling group, after Continuum's own continuation context
+  reference. Existing wrappers (Sage, Sol, Spectrum, the pack's `Step Curve`)
+  are preserved; the guider conditioning is restored after each call.
+- Conditioning construction, continuation transport, Audio, Seed, SIGMAS, Run
+  Storage identity, and captured Second Pass refine context are unchanged. A
+  disconnected socket is bit-exact with the previous Sampler.
+- A bundle above a positive token budget is rejected before sampling exactly
+  as the pack rejects it; every other RefMod setting problem is a diagnostic
+  note in the status report, never a stop.
+
 ## Ownership summary
 
 | Owner | Responsibility |
 |---|---|
+| RefMod pack | Mod extraction, storage, loading, strength math, and the `H3_REF_MODS` bundle; Continuum only consumes the bundle |
 | Continuum | Physical-group identity/order, temporal ownership, conditioning reconstruction, Second Pass validation/Sampling, first-pass audio passthrough, target-geometry plan copy, Finalize assembly |
 | External processor | Spatial Video LATENT transformation while preserving B/C/T, group order, and finite values |
 | Core or decoder node | Video/Audio VAE decode/encode behavior, tiling, fallback, device lifecycle |

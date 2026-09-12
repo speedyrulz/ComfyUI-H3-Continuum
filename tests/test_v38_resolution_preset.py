@@ -177,7 +177,12 @@ def test_v38_schema_keeps_legacy_aspect_and_appends_size_source_contract():
     v38 = H3ContinuumSamplerV38.INPUT_TYPES()
     assert "width" in v37["required"]
     assert "height" in v37["required"]
-    assert list(v38["required"])[-3:] == ["size_source", "width", "height"]
+    required_names = list(v38["required"])
+    # RefMod controls are appended after the size contract; the size trio must
+    # still be the last non-RefMod widgets so every earlier index is stable.
+    non_refmod = [name for name in required_names if not name.startswith("refmod_")]
+    assert non_refmod[-3:] == ["size_source", "width", "height"]
+    assert required_names.index("height") < required_names.index("refmod_retention")
     assert tuple(name for name in v38["required"] if name in {"aspect", "preset", "custom_mp"}) == (
         "aspect",
         "preset",
@@ -201,8 +206,10 @@ def test_v38_schema_keeps_legacy_aspect_and_appends_size_source_contract():
             "the normal choice for T2VA or workflows without a First Image."
         ),
     }
-    assert list(v38["optional"])[:-1] == list(v37["optional"])
-    assert list(v38["optional"])[-1] == "audio_references"
+    # V3.8 appends `audio_references` and then the RefMod `refmods` socket.
+    assert list(v38["optional"])[:-2] == list(v37["optional"])
+    assert list(v38["optional"])[-2:] == ["audio_references", "refmods"]
+    assert list(v38["optional"])[-2] == "audio_references"
     assert v38["optional"]["audio_references"][0] == (
         "H3_CONTINUUM_AUDIO_REFERENCES"
     )

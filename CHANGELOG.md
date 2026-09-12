@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.0 — RefMod integration on main (2026-09-12)
+
+- Add an optional `RefMods (Optional)` (`H3_REF_MODS`) socket to `H3 Continuum Sampler V3.8` for bundles from the external ComfyUI-MiniMaxH3Mod pack (`Load H3 RefMods`, `Load H3 RefMod Axis`, `Create H3 RefMod`). The Sampler resolves the bundle exactly like `Apply H3 RefMod` and injects the reference blocks into every chunk through one keyed `OUTER_SAMPLE` wrapper on a call-local MODEL clone.
+- Append the equivalent Advanced controls after every existing V3.8 widget: `RefMod Retention`, `Curve Direction` / `Shape` / `Value`, `Scramble Seed` / `Mode` / `Keep`, `Token Budget`, and `Use Saved Config`. They appear with Advanced open and a connected bundle, and are ignored otherwise. Existing widget indices are unchanged.
+- New `refmod_bridge.py` discovers the installed pack lazily by capability and falls back to a duck-typed port of its block builder; Continuum keeps no import-time dependency on the pack. The status report gains a `RefMod Bridge` section.
+- No change to conditioning construction, continuation transport, Audio, Seed, SIGMAS, Run Storage identity, or the public seven-node surface. A disconnected socket is a pure passthrough.
+
 ## 3.8.0 — Review UI hotfix on main (2026-09-08)
 
 - Withdraw stale Continue/Retry/Finish actions after local or connected generation inputs change. A stale queued Retry falls back to normal backend compatibility/reuse checks instead of targeting an incompatible saved review.

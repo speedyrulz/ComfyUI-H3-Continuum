@@ -76,7 +76,9 @@ def test_public_helper_and_v38_socket_are_the_only_surface_additions():
     )
     assert H3ContinuumReferenceAudios.RETURN_TYPES == (REFERENCE_AUDIOS_TYPE,)
     assert "audio_references" not in v37["optional"]
-    assert list(v38["optional"])[:-1] == list(v37["optional"])
+    # V3.8 appends `audio_references` and then the RefMod `refmods` socket.
+    assert list(v38["optional"])[:-2] == list(v37["optional"])
+    assert list(v38["optional"])[-2:] == ["audio_references", "refmods"]
     assert v38["optional"]["audio_references"][0] == REFERENCE_AUDIOS_TYPE
 
 

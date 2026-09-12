@@ -30,6 +30,24 @@ from ..reference_audio import (
     H3ContinuumReferenceAudios,
     REFERENCE_AUDIOS_TYPE,
 )
+from ..refmod_bridge import (
+    CURVE_DIRECTIONS as REFMOD_CURVE_DIRECTIONS,
+    CURVE_SHAPES as REFMOD_CURVE_SHAPES,
+    DEFAULT_CURVE_DIRECTION as REFMOD_DEFAULT_CURVE_DIRECTION,
+    DEFAULT_CURVE_SHAPE as REFMOD_DEFAULT_CURVE_SHAPE,
+    DEFAULT_CURVE_VALUE as REFMOD_DEFAULT_CURVE_VALUE,
+    DEFAULT_MAX_TOKENS as REFMOD_DEFAULT_MAX_TOKENS,
+    DEFAULT_RETENTION as REFMOD_DEFAULT_RETENTION,
+    DEFAULT_SCRAMBLE_KEEP as REFMOD_DEFAULT_SCRAMBLE_KEEP,
+    DEFAULT_SCRAMBLE_MODE as REFMOD_DEFAULT_SCRAMBLE_MODE,
+    DEFAULT_SCRAMBLE_SEED as REFMOD_DEFAULT_SCRAMBLE_SEED,
+    REFMODS_TYPE,
+    SCRAMBLE_MODES as REFMOD_SCRAMBLE_MODES,
+    attach_refmod_blocks,
+    build_refmod_blocks,
+    format_refmod_status,
+    normalize_settings as normalize_refmod_settings,
+)
 from ..v2.decoder import enforce_total_frames
 from .assembly import (
     H3ContinuumAssembleSeamExperimental,
@@ -678,6 +696,10 @@ class H3ContinuumSamplerV38(H3ContinuumSamplerV37):
                 ),
             },
         )
+        # RefMod (ComfyUI-MiniMaxH3Mod) controls mirror `Apply H3 RefMod` and are
+        # appended after the existing V3.8 widgets so saved widget indices stay
+        # stable. They only act when the optional `refmods` socket is connected.
+        resolved_required.update(cls._refmod_widget_schema())
         schema["required"] = resolved_required
         optional = dict(schema.get("optional", {}))
         optional["audio_references"] = (
@@ -690,8 +712,164 @@ class H3ContinuumSamplerV38(H3ContinuumSamplerV37):
                 ),
             },
         )
+        optional["refmods"] = (
+            REFMODS_TYPE,
+            {
+                "display_name": "RefMods (Optional)",
+                "tooltip": (
+                    "Optional H3_REF_MODS bundle from the ComfyUI-MiniMaxH3Mod pack "
+                    "(Load H3 RefMods, Load H3 RefMod Axis, or Create H3 RefMod). "
+                    "The Sampler applies it like Apply H3 RefMod, injecting the "
+                    "reference blocks into every chunk. Leave unconnected to disable; "
+                    "the RefMod settings below are then ignored."
+                ),
+            },
+        )
         schema["optional"] = optional
         return schema
+
+    @classmethod
+    def _refmod_widget_schema(cls):
+        """Adjustable settings equivalent to the `Apply H3 RefMod` node."""
+        return {
+            "refmod_retention": (
+                "FLOAT",
+                {
+                    "default": REFMOD_DEFAULT_RETENTION,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "advanced": True,
+                    "display_name": "RefMod Retention",
+                    "tooltip": (
+                        "Master reference strength multiplied with each RefMod row's "
+                        "strength. 1.0 = fully preserved, 0.7 = partially preserved, "
+                        "0.4 = attribute transfer, 0.15 = weak reference, 0 = no "
+                        "reference. Used only when RefMods is connected."
+                    ),
+                },
+            ),
+            "refmod_curve_direction": (
+                list(REFMOD_CURVE_DIRECTIONS),
+                {
+                    "default": REFMOD_DEFAULT_CURVE_DIRECTION,
+                    "advanced": True,
+                    "display_name": "RefMod Curve Direction",
+                    "tooltip": (
+                        "Weighting envelope across each mod's OWN reference frames "
+                        "(stacked images or video-ref frames), not the output timeline. "
+                        "constant keeps every frame at full strength; the concept_at_* "
+                        "directions fade part of the stack toward blur. Single-image "
+                        "mods ignore the direction and use Curve Value as a strength cap."
+                    ),
+                },
+            ),
+            "refmod_curve_shape": (
+                list(REFMOD_CURVE_SHAPES),
+                {
+                    "default": REFMOD_DEFAULT_CURVE_SHAPE,
+                    "advanced": True,
+                    "display_name": "RefMod Curve Shape",
+                    "tooltip": (
+                        "How the weighting travels between its endpoints: linear, ease, "
+                        "sigmoid, tanh, quadratic, cubic, exponential, stair, elastic, "
+                        "bump, or dip. Only matters when Curve Direction is not constant."
+                    ),
+                },
+            ),
+            "refmod_curve_value": (
+                "FLOAT",
+                {
+                    "default": REFMOD_DEFAULT_CURVE_VALUE,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "advanced": True,
+                    "display_name": "RefMod Curve Value",
+                    "tooltip": (
+                        "Endpoint weight of the curve: both endpoints for constant and "
+                        "concept_at_ends, the start for concept_at_start, the end for "
+                        "concept_at_end, the peak for concept_at_middle. On single-image "
+                        "mods this is a plain strength cap."
+                    ),
+                },
+            ),
+            "refmod_scramble_seed": (
+                "INT",
+                {
+                    "default": REFMOD_DEFAULT_SCRAMBLE_SEED,
+                    "min": -1,
+                    "max": 2147483647,
+                    "step": 1,
+                    "advanced": True,
+                    "display_name": "RefMod Scramble Seed",
+                    "tooltip": (
+                        "-1 = off (all refs in saved order). With 2 or more refs in the "
+                        "bundle, a seed of 0 or higher shuffles the order and, in the "
+                        "subset modes, keeps a subset so a different ref leads each run. "
+                        "The same seed always gives the same scramble."
+                    ),
+                },
+            ),
+            "refmod_scramble_mode": (
+                list(REFMOD_SCRAMBLE_MODES),
+                {
+                    "default": REFMOD_DEFAULT_SCRAMBLE_MODE,
+                    "advanced": True,
+                    "display_name": "RefMod Scramble Mode",
+                    "tooltip": (
+                        "shuffle keeps every ref in a seeded random order; subset keeps "
+                        "only Scramble Keep refs; legacy_subset keeps a seeded random "
+                        "half-to-all subset. Ignored while Scramble Seed is -1."
+                    ),
+                },
+            ),
+            "refmod_scramble_keep": (
+                "INT",
+                {
+                    "default": REFMOD_DEFAULT_SCRAMBLE_KEEP,
+                    "min": 1,
+                    "max": 80,
+                    "step": 1,
+                    "advanced": True,
+                    "display_name": "RefMod Scramble Keep",
+                    "tooltip": (
+                        "Number of refs retained when Scramble Mode is subset. "
+                        "shuffle and legacy_subset ignore this value."
+                    ),
+                },
+            ),
+            "refmod_max_tokens": (
+                "INT",
+                {
+                    "default": REFMOD_DEFAULT_MAX_TOKENS,
+                    "min": 0,
+                    "max": 1048576,
+                    "step": 1,
+                    "advanced": True,
+                    "display_name": "RefMod Token Budget",
+                    "tooltip": (
+                        "Total reference token budget for the bundle after copies and "
+                        "scrambling. 0 disables the limit. A bundle above a positive "
+                        "budget is rejected before sampling, matching Apply H3 RefMod."
+                    ),
+                },
+            ),
+            "refmod_override": (
+                "BOOLEAN",
+                {
+                    "default": False,
+                    "advanced": True,
+                    "display_name": "RefMod Use Saved Config",
+                    "tooltip": (
+                        "Use the retention and curve fixed into a mod's own metadata by "
+                        "Fix H3 RefMod Config instead of the RefMod widgets above. The "
+                        "first mod in the bundle with a saved config wins; without one "
+                        "the widgets stay in force and the report notes it."
+                    ),
+                },
+            ),
+        }
 
     @classmethod
     def IS_CHANGED(
@@ -721,6 +899,16 @@ class H3ContinuumSamplerV38(H3ContinuumSamplerV37):
         size_source=H3_SIZE_SOURCE_LEGACY,
         width=H3_MANUAL_WIDTH_DEFAULT,
         height=H3_MANUAL_HEIGHT_DEFAULT,
+        refmods=None,
+        refmod_retention=REFMOD_DEFAULT_RETENTION,
+        refmod_curve_direction=REFMOD_DEFAULT_CURVE_DIRECTION,
+        refmod_curve_shape=REFMOD_DEFAULT_CURVE_SHAPE,
+        refmod_curve_value=REFMOD_DEFAULT_CURVE_VALUE,
+        refmod_scramble_seed=REFMOD_DEFAULT_SCRAMBLE_SEED,
+        refmod_scramble_mode=REFMOD_DEFAULT_SCRAMBLE_MODE,
+        refmod_scramble_keep=REFMOD_DEFAULT_SCRAMBLE_KEEP,
+        refmod_max_tokens=REFMOD_DEFAULT_MAX_TOKENS,
+        refmod_override=False,
         **kwargs,
     ):
         resolution = resolve_h3_size_source(
@@ -732,6 +920,28 @@ class H3ContinuumSamplerV38(H3ContinuumSamplerV37):
             custom_mp=custom_mp,
             first_frame=kwargs.get("first_frame"),
         )
+        refmod_status = None
+        if refmods is not None:
+            # Resolve the bundle exactly like Apply H3 RefMod and scope the
+            # injection to a cloned MODEL so every chunk's guider receives the
+            # same reference blocks. A disconnected socket is a pure no-op.
+            settings = normalize_refmod_settings(
+                retention=refmod_retention,
+                curve_direction=refmod_curve_direction,
+                curve_shape=refmod_curve_shape,
+                curve_value=refmod_curve_value,
+                scramble_seed=refmod_scramble_seed,
+                scramble_mode=refmod_scramble_mode,
+                scramble_keep=refmod_scramble_keep,
+                max_total_tokens=refmod_max_tokens,
+                override=refmod_override,
+            )
+            blocks, summary = build_refmod_blocks(refmods, settings)
+            if blocks and "model" in kwargs:
+                kwargs = dict(kwargs)
+                kwargs["model"] = attach_refmod_blocks(kwargs["model"], blocks)
+            refmod_status = format_refmod_status(summary)
+            print("[H3 Continuum] " + refmod_status.replace("\n", " | "))
         outputs = super().run(
             width=resolution.width,
             height=resolution.height,
@@ -747,6 +957,9 @@ class H3ContinuumSamplerV38(H3ContinuumSamplerV37):
         # result rather than turning diagnostics into an execution requirement.
         if not isinstance(outputs, tuple) or len(outputs) < 4:
             return outputs
+        if refmod_status is not None:
+            status = str(outputs[3]).rstrip() + "\n" + refmod_status
+            outputs = (*outputs[:3], status, *outputs[4:])
         if size_source != H3_SIZE_SOURCE_LEGACY:
             resolution_lines = [
                 (

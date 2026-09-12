@@ -1,5 +1,11 @@
 # Project State
 
+## RefMod (ComfyUI-MiniMaxH3Mod) Sampler integration (2026-09-12)
+
+- User-requested change to the V3.8 Sampler public schema: one optional `refmods` (`H3_REF_MODS`) socket appended after `audio_references`, and nine `refmod_*` Advanced widgets appended after `height` (retention, curve direction/shape/value, scramble seed/mode/keep, token budget, use-saved-config). All pre-existing widget indices are unchanged; `test_v38_schema_and_serialized_widget_order_are_unchanged` now pins the extended order.
+- New root module `refmod_bridge.py`: lazy capability-based discovery of the installed pack (`_ref_blocks` + `MiniMaxH3RefModApply` + `MiniMaxH3RefModsLoader` on a `*nodes` module), a duck-typed fallback block builder with the same semantics, and a keyed `OUTER_SAMPLE` wrapper (`h3_continuum.refmod_bridge.v1`) on a call-local MODEL clone that appends the blocks to every guider conditioning entry and restores it afterwards. Frontend shows the widgets only with Advanced open and the socket actively linked; hover help added for each.
+- Not covered by Run Storage identity or captured refine context; documented in README and the Open Integration Contract. Validation: CPU pytest only (new `tests/test_v38_refmod_bridge.py`); no GPU run, no live ComfyUI registration check, no Registry/Release publication. Pre-existing local failures unrelated to this change: missing `examples/workflows/MiniMax_H3_Continuum_V38.json` in this checkout and a Windows console encoding mismatch in the Node facade regression.
+
 ## Issue #20 workflow persistence hotfix (2026-09-10)
 
 - User authorized repair and publication to main from pinned 6b453fe. The only runtime change is `serialize: false` on the read-only Render History widget in `web/project_id.js`; existing `options.serialize: false` is retained. Backend widget order, Sampling, Audio, Run Storage, public workflow/ZIP bytes, and Easy Loader Bypass behavior are unchanged.
