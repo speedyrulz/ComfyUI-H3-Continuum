@@ -322,7 +322,45 @@ def build_refmod_blocks(
         blocks = _fallback_blocks(items, resolved)
     summary["block_count"] = len(blocks)
     summary["token_count"] = sum(_block_tokens(block) for block in blocks)
+    summary["block_stats"] = [_block_stats(block) for block in blocks]
     return blocks, summary
+
+
+def _tensor_stats(tensor: Any) -> dict[str, Any] | None:
+    """Small CPU summary of a ref latent used to spot NaN/Inf or wild scaling."""
+    try:
+        import torch
+    except Exception:  # pragma: no cover
+        return None
+    if not torch.is_tensor(tensor):
+        return None
+    try:
+        value = tensor.detach().to("cpu", dtype=torch.float32)
+        finite = bool(torch.isfinite(value).all().item())
+        clean = value if finite else value[torch.isfinite(value)]
+        return {
+            "shape": tuple(int(v) for v in tensor.shape),
+            "dtype": str(tensor.dtype).replace("torch.", ""),
+            "device": str(tensor.device),
+            "finite": finite,
+            "absmax": float(clean.abs().max().item()) if clean.numel() else 0.0,
+            "mean": float(clean.mean().item()) if clean.numel() else 0.0,
+            "std": float(clean.std(unbiased=False).item()) if clean.numel() else 0.0,
+        }
+    except Exception as exc:  # pragma: no cover
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _block_stats(block: dict) -> dict[str, Any]:
+    return {
+        "kind": block.get("kind"),
+        "latent_t": int(block.get("latent_t", 1) or 1),
+        "latent_h": int(block.get("latent_h", 0) or 0),
+        "latent_w": int(block.get("latent_w", 0) or 0),
+        "ref_audio_t": int(block.get("ref_audio_t", 0) or 0),
+        "latent": _tensor_stats(block.get("latent")),
+        "audio_latent": _tensor_stats(block.get("audio_latent")),
+    }
 
 
 def _block_tokens(block: dict) -> int:
@@ -408,6 +446,37 @@ def format_refmod_status(summary: dict[str, Any]) -> str:
             f"retention={float(settings.get('retention', 1.0)):.2f} ({settings.get('retention_source', 'sampler widget')}); "
             f"curve={curve} ({settings.get('curve_source', 'sampler widgets')}); scramble={scramble}; "
             f"tokens={summary.get('token_count', 0)}; helper={summary.get('helper', 'none')}."
+        )
+    non_finite = []
+    for index, stats in enumerate(summary.get("block_stats", []), start=1):
+        parts = [
+            f"kind={stats.get('kind')}",
+            f"t={stats.get('latent_t')}",
+            f"hw={stats.get('latent_h')}x{stats.get('latent_w')}",
+        ]
+        if stats.get("ref_audio_t"):
+            parts.append(f"audio_t={stats['ref_audio_t']}")
+        for label in ("latent", "audio_latent"):
+            ts = stats.get(label)
+            if not ts:
+                continue
+            if "error" in ts:
+                parts.append(f"{label}={ts['error']}")
+                continue
+            if ts["finite"] is False:
+                non_finite.append(index)
+            parts.append(
+                f"{label}={ts['shape']} {ts['dtype']}@{ts['device']} "
+                f"finite={ts['finite']} absmax={ts['absmax']:.3f} "
+                f"mean={ts['mean']:.3f} std={ts['std']:.3f}"
+            )
+        lines.append(f"Block {index}: " + "; ".join(parts))
+    if non_finite:
+        lines.append(
+            "WARNING: reference block(s) "
+            + ", ".join(str(i) for i in non_finite)
+            + " contain NaN/Inf; an injected non-finite reference poisons every "
+            "chunk (black output). Re-create the mod or set its strength to 0."
         )
     for note in summary.get("notes", []):
         lines.append(f"Note: {note}")

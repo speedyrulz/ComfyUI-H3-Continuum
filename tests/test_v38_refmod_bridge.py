@@ -439,3 +439,28 @@ def test_frontend_wires_refmod_widgets_into_the_advanced_disclosure():
         assert f"    {name}: (" in source
     assert 'activeLinkedInput(node, ["refmods"])' in source
     assert "setWidgetVisible(findWidget(node, name), advanced && refmodsConnected);" in source
+
+
+def test_status_reports_block_tensor_stats_and_flags_non_finite():
+    import torch
+
+    class _TensorMod(_Mod):
+        def __init__(self, name, value):
+            super().__init__(name)
+            self._value = value
+
+        def ref_block(self, strength=1.0, curve=None):
+            block = super().ref_block(strength, curve)
+            block["latent"] = self._value
+            return block
+
+    good = _TensorMod("good", torch.full((1, 24, 1, 8, 8), 0.5))
+    bad = _TensorMod("bad", torch.full((1, 24, 1, 8, 8), float("nan")))
+    _, summary = build_refmod_blocks([(good, 1.0), (bad, 1.0)], normalize_settings(), pack=None)
+    stats = summary["block_stats"]
+    assert stats[0]["latent"]["finite"] is True
+    assert stats[0]["latent"]["shape"] == (1, 24, 1, 8, 8)
+    assert stats[1]["latent"]["finite"] is False
+    text = format_refmod_status(summary)
+    assert "Block 1: kind=image; t=1; hw=8x8; latent=(1, 24, 1, 8, 8) float32@cpu finite=True absmax=0.500" in text
+    assert "WARNING: reference block(s) 2 contain NaN/Inf" in text
