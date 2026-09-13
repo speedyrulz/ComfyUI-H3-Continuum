@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.0 — Review controls survive foreign queuePrompt wrappers (2026-09-12)
+
+- Fix `Review Each Chunk` never showing the review actions after a chunk when another extension (observed: ComfyUI-Distributed) replaces `api.queuePrompt` after its own async initialization and calls a copy captured at module load, bypassing Continuum's queue adapter.
+- The adapter now re-wraps the current `api.queuePrompt` on node creation, shortly after setup, and on every `status` event, with a depth guard against double recording. Prompts queued past the adapter are discovered from the server queue so their terminal event still reloads Run Storage.
+- Frontend only; two new harness cases (48 total). No backend, schema, Run Storage, or workflow change.
+
 ## 3.8.0 — RefMod integration on main (2026-09-12)
 
 - Add an optional `RefMods (Optional)` (`H3_REF_MODS`) socket to `H3 Continuum Sampler V3.8` for bundles from the external ComfyUI-MiniMaxH3Mod pack (`Load H3 RefMods`, `Load H3 RefMod Axis`, `Create H3 RefMod`). The Sampler resolves the bundle exactly like `Apply H3 RefMod` and injects the reference blocks into every chunk through one keyed `OUTER_SAMPLE` wrapper on a call-local MODEL clone.

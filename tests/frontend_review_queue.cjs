@@ -53,6 +53,7 @@ function environment() {
     .replace(/import \{ api \} from "\.\.\/\.\.\/scripts\/api.js";/,'')
     .replace(/import \{ normalizeReferenceAudioLabels \} from "\.\/reference_audio_ui.js";/,'function normalizeReferenceAudioLabels() {}');
   vm.runInNewContext(src+`\nglobalThis.testFns={configureNode,loadTakeHistory,prepareReviewQueueIntent,takeCatalog,selectTakeOffset,selectTakeAction,reviewStatus,reviewSettingsChanged,synchronizeReviewQueue};`,sandbox);
+  const pristineQueuePrompt=api.queuePrompt;
   app.extension.setup();
   const f=sandbox.testFns;
   function makeNode(id=312,run='fixture'){
@@ -87,7 +88,7 @@ function environment() {
     const result=await api.queuePrompt(0,data,options);
     for(const x of n.widgets)x.afterQueued?.({isPartialExecution:false});return result;}
   async function emit(type,detail){await Promise.all((listeners.get(type)||[]).map(cb=>cb({type,detail})));await sleep();await sleep();}
-  return {f,api,app,w,inputs,queue,emit,makeNode,submissions,setSaved:p=>{saved=p;},
+  return {f,api,app,w,inputs,queue,emit,makeNode,submissions,pristineQueuePrompt,setSaved:p=>{saved=p;},
     getSaved:()=>saved,getFetchCount:()=>fetchCount,setQueueHook:h=>queueHook=h,setFetchHook:h=>fetchHook=h,
     failQueue:e=>nextError=e,visible:(n,name)=>!w(n,name)?.hidden,
     async load(n,p){saved=p;await f.loadTakeHistory(n,{force:true});n.__h3ContinuumIntuitiveUxRefresh?.();},
@@ -521,6 +522,37 @@ await test('external duration links remain links through actual review Queue ada
  await e.api.queuePrompt(0,data);
  assert.deepEqual(e.submissions.at(-1).data.output[n.id].inputs.chunks,['900',0]);
  assert.deepEqual(e.submissions.at(-1).data.output[n.id].inputs.chunk_seconds,['901',0]);
+});
+await test('foreign api.queuePrompt wrapper installed after setup is re-armed and review still opens',async e=>{
+ // ComfyUI-Distributed pattern: capture api.queuePrompt at module load, then
+ // replace it after an async init that finishes after every extension setup().
+ const n=e.makeNode();await e.load(n,null);e.w(n,'Run').callback('Review Each Chunk');
+ const pristine=e.pristineQueuePrompt;
+ e.api.queuePrompt=async function(number,data,...rest){return pristine.call(e.api,number,data,...rest);};
+ await e.emit('status',{exec_info:{queue_remaining:0}});
+ const q=await e.queue(n);
+ assert.equal(e.submissions.at(-1).data.output['312'].inputs.reroll_from_chunk,'Auto');
+ e.setSaved(project(1));await e.emit('execution_success',{prompt_id:q.prompt_id});
+ assert(e.visible(n,'Use it and continue'),'review Continue is missing after a foreign wrapper');
+ // Re-arming twice must not record one Queue twice.
+ const before=e.submissions.length;await e.emit('status',{exec_info:{queue_remaining:0}});
+ e.w(n,'Use it and continue').callback();const next=await e.queue(n);
+ assert.equal(e.submissions.length,before+1);
+ e.setSaved(project(2));await e.emit('execution_success',{prompt_id:next.prompt_id});
+ assert(e.visible(n,'Use it and continue'));
+});
+await test('prompt queued past the adapter is discovered from the server queue',async e=>{
+ const n=e.makeNode();await e.load(n,null);e.w(n,'Run').callback('Review Each Chunk');
+ const i=await e.inputs(n);const output={[n.id]:{class_type:n.comfyClass,inputs:i}};
+ const q=await e.pristineQueuePrompt.call(e.api,0,{output,workflow:n.serialize()});
+ e.setFetchHook(async(url)=>String(url).startsWith('/queue')
+   ?{ok:true,status:200,json:async()=>({queue_running:[[1,q.prompt_id,structuredClone(output),{},[]]],queue_pending:[]})}
+   :(e.getSaved()?{ok:true,status:200,json:async()=>structuredClone(e.getSaved())}:{ok:false,status:404,json:async()=>null}));
+ assert(!e.visible(n,'Use it and continue'));
+ await e.emit('status',{exec_info:{queue_remaining:1}});
+ assert.match(e.f.reviewStatus(n),/Queued \/ generating/);
+ e.setSaved(project(1));await e.emit('execution_success',{prompt_id:q.prompt_id});
+ assert(e.visible(n,'Use it and continue'),'discovered prompt did not open Review');
 });
 console.log(JSON.stringify(results,null,2));if(results.some(r=>!r.pass))process.exitCode=1;
 })();

@@ -2090,10 +2090,32 @@ async function refreshV38TakeHistoryAfterExecution(event) {
     try { return await records.processing; } finally { delete records.processing; }
 }
 
+// Other extensions (for example ComfyUI-Distributed) replace `api.queuePrompt`
+// after their own async initialization and call a copy captured at module
+// load, which silently drops this adapter. Keep the installed function so the
+// adapter can re-wrap whatever is current; a depth guard keeps a nested chain
+// (ours -> theirs -> ours) from recording one Queue twice.
+let reviewQueueAdapter = null;
+let reviewQueueAdapterDepth = 0;
+
 function installReviewQueueAdapter() {
-    if (api.__h3ContinuumReviewQueueAdapter || typeof api.queuePrompt !== "function") return;
+    if (typeof api.queuePrompt !== "function" || api.queuePrompt === reviewQueueAdapter) return;
     const previous = api.queuePrompt;
-    api.queuePrompt = async function(number, data, options, ...rest) {
+    reviewQueueAdapter = async function(number, data, options, ...rest) {
+        if (reviewQueueAdapterDepth > 0) return previous.call(this, number, data, options, ...rest);
+        reviewQueueAdapterDepth++;
+        try {
+            return await reviewQueueAdapterBody.call(this, previous, number, data, options, ...rest);
+        } finally {
+            reviewQueueAdapterDepth--;
+        }
+    };
+    api.queuePrompt = reviewQueueAdapter;
+    api.__h3ContinuumReviewQueueAdapter = true;
+}
+
+async function reviewQueueAdapterBody(previous, number, data, options, ...rest) {
+    {
         const output = { ...(data?.output || {}) };
         const records = [];
         for (const [nodeId, item] of Object.entries(output)) {
@@ -2136,8 +2158,7 @@ function installReviewQueueAdapter() {
             reviewSubmissionCount--;
             if (!reviewSubmissionCount) reviewEarlyTerminals.clear();
         }
-    };
-    api.__h3ContinuumReviewQueueAdapter = true;
+    }
 }
 
 let reviewSyncPromise = null;
@@ -2214,11 +2235,22 @@ async function reloadReviewHistory() {
 }
 
 function reconcileReviewQueueStatus(event) {
+    // A late foreign wrapper may have replaced the adapter since setup.
+    installReviewQueueAdapter();
     const remaining = event?.detail?.exec_info?.queue_remaining;
-    if (remaining === 0 && reviewPrompts.size && !reviewSubmissionCount) {
+    if (reviewSubmissionCount) return;
+    if (remaining === 0 && reviewPrompts.size) {
         // Read the server queue/history rather than inferring completion from
         // a zero queue count. This also handles dropped terminal messages.
         return synchronizeReviewQueue();
+    }
+    if (Number(remaining) > 0 && (app.graph?._nodes || []).some(
+        (node) => node.comfyClass === V38_NODE_CLASS,
+    )) {
+        // A prompt queued through a wrapper that bypassed the adapter has no
+        // record yet. Discover it from the server queue so its terminal event
+        // still reloads Run Storage and opens Review.
+        return synchronizeReviewQueue({discover: true});
     }
 }
 
@@ -2676,6 +2708,7 @@ function normalizedV38View(node) {
 
 function applyV38View(node) {
     if (node.comfyClass !== V38_NODE_CLASS) return;
+    installReviewQueueAdapter();
     node.__h3ContinuumIntuitiveUxRefresh?.();
     node.__h3ContinuumProductionUxRefresh?.();
     if (!node.__h3ContinuumTakeInitialLoad) {
@@ -3156,6 +3189,9 @@ app.registerExtension({
 
     setup() {
         installReviewQueueAdapter();
+        // Extensions that finish initializing asynchronously can still replace
+        // api.queuePrompt after every setup() has run; re-arm shortly after.
+        for (const delay of [500, 3000]) setTimeout(installReviewQueueAdapter, delay);
         api.addEventListener("reconnected", reloadReviewHistory);
         api.addEventListener("status", reconcileReviewQueueStatus);
         for (const eventName of [

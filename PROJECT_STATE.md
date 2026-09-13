@@ -1,5 +1,10 @@
 # Project State
 
+## Review queue adapter hardening (2026-09-12)
+
+- Confirmed on the user's WSL runtime that `Review Each Chunk` completed Chunk 1 with a valid `review_ready` Run Storage revision, but the frontend never reloaded history: `ComfyUI-Distributed` replaces `api.queuePrompt` after its async `loadConfig()` with a wrapper around the pristine function it captured at module load, bypassing Continuum's review queue adapter. Any extension using that pattern reproduces the symptom.
+- `web/project_id.js` now keeps its installed adapter function, re-wraps the current `api.queuePrompt` on node creation, 0.5 s/3 s after setup, and on every `status` event (depth-guarded), and discovers unrecorded queued prompts from `/queue` when a `status` event reports pending work. Harness `tests/frontend_review_queue.cjs` has 48 cases; `tests/conftest.py` pins that count. Validation is CPU/Node only; the user's runtime needs the updated `web/project_id.js` plus a browser reload.
+
 ## RefMod (ComfyUI-MiniMaxH3Mod) Sampler integration (2026-09-12)
 
 - User-requested change to the V3.8 Sampler public schema: one optional `refmods` (`H3_REF_MODS`) socket appended after `audio_references`, and nine `refmod_*` Advanced widgets appended after `height` (retention, curve direction/shape/value, scramble seed/mode/keep, token budget, use-saved-config). All pre-existing widget indices are unchanged; `test_v38_schema_and_serialized_widget_order_are_unchanged` now pins the extended order.
